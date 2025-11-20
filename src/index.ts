@@ -1,12 +1,12 @@
 // 🌐 Import types for Cloudflare Worker environment and Cron
-import type { ExecutionContext, Env } from '@cloudflare/workers-types';
+import type { ExecutionContext, Env, Request } from '@cloudflare/workers-types'; // Note: Added Request type
 
 // --- CONFIGURATION ---
-// Set the desired ON/OFF hours in UTC (0-23).
-const ENABLE_HOUR_UTC = 17;  // Example: 9:00 AM PST
-const DISABLE_HOUR_UTC = 1; // Example: 5:00 PM PST (1:00 AM next day UTC)
-
+const ENABLE_HOUR_UTC = 17;
+const DISABLE_HOUR_UTC = 1;
 // ---------------------
+
+// ... (RuleItem and WorkerEnv interfaces remain the same) ...
 
 interface RuleItem {
     id: string;
@@ -23,26 +23,36 @@ interface WorkerEnv extends Env {
     TARGET_RULE_IDS: string;
 }
 
+
 export default {
+    // 👇 NEW: The fetch handler to prevent "No fetch handler!" errors.
+    async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+        // You can return a simple message, as this worker is intended for scheduled tasks.
+        return new Response("This worker is primarily for scheduled (Cron) tasks. Status: OK.", {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain' },
+        });
+    },
+
+    // The existing scheduled handler logic goes here:
     async scheduled(
         event: ScheduledEvent,
         env: WorkerEnv,
         ctx: ExecutionContext
     ): Promise<void> {
+        // ... (Your existing scheduling logic) ...
+
         const now = new Date();
         const currentHourUtc = now.getUTCHours();
 
         // --- 1. Determine the Desired State ---
         let desiredState: boolean;
         if (ENABLE_HOUR_UTC < DISABLE_HOUR_UTC) {
-            // Standard window (e.g., 9-17 UTC)
             desiredState = currentHourUtc >= ENABLE_HOUR_UTC && currentHourUtc < DISABLE_HOUR_UTC;
         } else {
-            // Window crosses midnight (e.g., 17-01 UTC)
             desiredState = currentHourUtc >= ENABLE_HOUR_UTC || currentHourUtc < DISABLE_HOUR_UTC;
         }
 
-        // Split the comma-separated string into an array of IDs
         const targetRuleIdsArray = env.TARGET_RULE_IDS.split(',');
         if (targetRuleIdsArray.length === 0) {
             console.error("TARGET_RULE_IDS is empty or not configured correctly.");
@@ -78,21 +88,17 @@ export default {
 
             // --- 4. Iterate and Update Target Rules ---
             const updatedRules = ruleset.result.rules.map(rule => {
-                // Check if the current rule's ID is in our target list
                 if (targetRuleIdsArray.includes(rule.id)) {
-                    // If the rule's current state is NOT the desired state, mark for update
                     if (rule.enabled !== desiredState) {
                         updateRequired = true;
                         console.log(`Rule ${rule.id} state change required: ${rule.enabled} -> ${desiredState}.`);
                         return {
                             ...rule,
-                            enabled: desiredState, // Apply the new state
+                            enabled: desiredState,
                         };
                     }
-                    // If the state is already correct, return the rule unchanged
                     return rule;
                 }
-                // Return all non-target rules unchanged
                 return rule;
             });
 
