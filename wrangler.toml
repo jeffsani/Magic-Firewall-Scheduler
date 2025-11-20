@@ -1,0 +1,16 @@
+name = "magic-firewall-scheduler"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+[vars]
+# REPLACE THIS PLACEHOLDERS WITH YOUR ACTUAL IDs
+ACCOUNT_ID = "7a0c39354edd897a1a98f6c7e50c6873" 
+# MAGIC FIREWALL ROOT RULESET ID
+RULESET_ID = "35b415058b9f48009854421db12d7dd4" 
+#TARGET_RULE_IDS = "rule_id_one,rule_id_two,rule_id_three"
+TARGET_RULE_IDS = "2ad7785e2650451c9d308781bd1fe8cd"
+
+
+# 🕰️ Cron Trigger: Runs every 15 minutes
+[triggers]
+crons = [ "*/15 * * * *" ]
