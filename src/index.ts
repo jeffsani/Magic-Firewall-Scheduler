@@ -1,12 +1,10 @@
 // 🌐 Import types for Cloudflare Worker environment and Cron
-import type { ExecutionContext, Env, Request } from '@cloudflare/workers-types'; // Note: Added Request type
+import type { ExecutionContext, Env, Request } from '@cloudflare/workers-types';
 
 // --- CONFIGURATION ---
 const ENABLE_HOUR_UTC = 17;
 const DISABLE_HOUR_UTC = 1;
 // ---------------------
-
-// ... (RuleItem and WorkerEnv interfaces remain the same) ...
 
 interface RuleItem {
     id: string;
@@ -17,31 +15,37 @@ interface RuleItem {
 }
 
 interface WorkerEnv extends Env {
-    CLOUDFLARE_API_TOKEN: string;
-    ACCOUNT_ID: string;
+    //Using Global API Key and Email for authorization
+    CLOUDFLARE_API_KEY: string;
+    CLOUDFLARE_EMAIL: string;
+
+    // Rule variables remain
     RULESET_ID: string;
     TARGET_RULE_IDS: string;
 }
 
+// Helper function to create the required headers
+function getAuthHeaders(env: WorkerEnv): HeadersInit {
+    return {
+        'X-Auth-Email': env.CLOUDFLARE_EMAIL, // Your Cloudflare Account Email
+        'X-Auth-Key': env.CLOUDFLARE_API_KEY,   // Your Global API Key
+        'Content-Type': 'application/json',
+    };
+}
 
 export default {
-    // 👇 NEW: The fetch handler to prevent "No fetch handler!" errors.
     async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
-        // You can return a simple message, as this worker is intended for scheduled tasks.
         return new Response("This worker is primarily for scheduled (Cron) tasks. Status: OK.", {
             status: 200,
             headers: { 'Content-Type': 'text/plain' },
         });
     },
 
-    // The existing scheduled handler logic goes here:
     async scheduled(
         event: ScheduledEvent,
         env: WorkerEnv,
         ctx: ExecutionContext
     ): Promise<void> {
-        // ... (Your existing scheduling logic) ...
-
         const now = new Date();
         const currentHourUtc = now.getUTCHours();
 
@@ -54,29 +58,25 @@ export default {
         }
 
         const targetRuleIdsArray = env.TARGET_RULE_IDS.split(',');
-        if (targetRuleIdsArray.length === 0) {
-            console.error("TARGET_RULE_IDS is empty or not configured correctly.");
-            return;
-        }
 
         console.log(`Cron triggered at ${now.toISOString()}. Desired Rule State: ${desiredState ? 'Enabled' : 'Disabled'} for ${targetRuleIdsArray.length} rules.`);
 
         // --- 2. Validation and API Endpoint Setup ---
-        if (!env.CLOUDFLARE_API_TOKEN || !env.ACCOUNT_ID || !env.RULESET_ID) {
-            console.error("Missing required environment variables (Token, IDs).");
+        // NOTE: The Account ID is no longer needed in the fetch URL for Magic Firewall rulesets!
+        if (!env.CLOUDFLARE_API_KEY || !env.CLOUDFLARE_EMAIL || !env.RULESET_ID) {
+            console.error("Missing required environment variables (Email, Key, or Ruleset ID).");
             return;
         }
 
-        const API_ENDPOINT = `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/rulesets/${env.RULESET_ID}`;
+        // The endpoint URL changes slightly when using the Global Key/Email method
+        // for rulesets, as the Account ID can be derived from the authentication.
+        const API_ENDPOINT = `https://api.cloudflare.com/client/v4/rulesets/${env.RULESET_ID}`;
 
         try {
             // --- 3. Fetch current ruleset state ---
             const fetchResponse = await fetch(API_ENDPOINT, {
                 method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-                    'Content-Type': 'application/json',
-                },
+                headers: getAuthHeaders(env), // Using the new helper function
             });
 
             if (!fetchResponse.ok) {
@@ -110,10 +110,7 @@ export default {
 
             const updateResponse = await fetch(API_ENDPOINT, {
                 method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${env.CLOUDFLARE_API_TOKEN}`,
-                    'Content-Type': 'application/json',
-                },
+                headers: getAuthHeaders(env), // Using the new helper function
                 body: JSON.stringify({
                     rules: updatedRules,
                 }),
