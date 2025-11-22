@@ -1,7 +1,11 @@
+// src/index.ts
+
 // 🌐 Import types for Cloudflare Worker environment and Cron
 import type { ExecutionContext, Env, Request } from '@cloudflare/workers-types';
 
 // --- CONFIGURATION ---
+// Set the desired ON/OFF hours in UTC (0-23).
+// Example: Enable at 9:00 AM PST (17 UTC) and Disable at 5:00 PM PST (1 UTC, next day).
 const ENABLE_HOUR_UTC = 17;
 const DISABLE_HOUR_UTC = 1;
 // ---------------------
@@ -15,32 +19,40 @@ interface RuleItem {
 }
 
 interface WorkerEnv extends Env {
-    //Using Global API Key and Email for authorization
+    // Global API Key/Email for Authentication (set as secrets)
     CLOUDFLARE_API_KEY: string;
     CLOUDFLARE_EMAIL: string;
 
-    // Rule variables remain
+    // Variables from wrangler.toml
+    ACCOUNT_ID: string;
     RULESET_ID: string;
-    TARGET_RULE_IDS: string;
+    TARGET_RULE_IDS: string; // Comma-separated list of rule IDs
 }
 
-// Helper function to create the required headers
+// Helper function to create the required Global API Key headers
 function getAuthHeaders(env: WorkerEnv): HeadersInit {
     return {
-        'X-Auth-Email': env.CLOUDFLARE_EMAIL, // Your Cloudflare Account Email
-        'X-Auth-Key': env.CLOUDFLARE_API_KEY,   // Your Global API Key
+        'X-Auth-Email': env.CLOUDFLARE_EMAIL,
+        'X-Auth-Key': env.CLOUDFLARE_API_KEY,
         'Content-Type': 'application/json',
     };
 }
 
 export default {
+    /**
+     * Handles incoming HTTP requests. Required to prevent "No fetch handler!" errors,
+     * though the primary function of this worker is scheduled tasks.
+     */
     async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
-        return new Response("This worker is primarily for scheduled (Cron) tasks. Status: OK.", {
+        return new Response("This worker is dedicated to running scheduled Magic Firewall updates. Status: OK.", {
             status: 200,
             headers: { 'Content-Type': 'text/plain' },
         });
     },
 
+    /**
+     * The main scheduled handler triggered by the Cron configuration.
+     */
     async scheduled(
         event: ScheduledEvent,
         env: WorkerEnv,
@@ -49,34 +61,40 @@ export default {
         const now = new Date();
         const currentHourUtc = now.getUTCHours();
 
-        // --- 1. Determine the Desired State ---
+        // --- 1. Determine the Desired State based on UTC time ---
         let desiredState: boolean;
         if (ENABLE_HOUR_UTC < DISABLE_HOUR_UTC) {
+            // Standard window (e.g., 9-17 UTC)
             desiredState = currentHourUtc >= ENABLE_HOUR_UTC && currentHourUtc < DISABLE_HOUR_UTC;
         } else {
+            // Window crosses midnight (e.g., 17-01 UTC)
             desiredState = currentHourUtc >= ENABLE_HOUR_UTC || currentHourUtc < DISABLE_HOUR_UTC;
         }
 
-        const targetRuleIdsArray = env.TARGET_RULE_IDS.split(',');
+        // Convert the comma-separated string of IDs into an array
+        const targetRuleIdsArray = env.TARGET_RULE_IDS.split(',').filter(id => id.trim() !== '');
+
+        if (targetRuleIdsArray.length === 0) {
+            console.error("TARGET_RULE_IDS is empty or not configured correctly.");
+            return;
+        }
 
         console.log(`Cron triggered at ${now.toISOString()}. Desired Rule State: ${desiredState ? 'Enabled' : 'Disabled'} for ${targetRuleIdsArray.length} rules.`);
 
         // --- 2. Validation and API Endpoint Setup ---
-        // NOTE: The Account ID is no longer needed in the fetch URL for Magic Firewall rulesets!
-        if (!env.CLOUDFLARE_API_KEY || !env.CLOUDFLARE_EMAIL || !env.RULESET_ID) {
-            console.error("Missing required environment variables (Email, Key, or Ruleset ID).");
+        if (!env.CLOUDFLARE_API_KEY || !env.CLOUDFLARE_EMAIL || !env.RULESET_ID || !env.ACCOUNT_ID) {
+            console.error("Missing required environment variables (Email, Key, Ruleset ID, OR ACCOUNT ID).");
             return;
         }
 
-        // The endpoint URL changes slightly when using the Global Key/Email method
-        // for rulesets, as the Account ID can be derived from the authentication.
-        const API_ENDPOINT = `https://api.cloudflare.com/client/v4/rulesets/${env.RULESET_ID}`;
+        // Correct API Endpoint URL structure for Account-level Rulesets
+        const API_ENDPOINT = `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/rulesets/${env.RULESET_ID}`;
 
         try {
             // --- 3. Fetch current ruleset state ---
             const fetchResponse = await fetch(API_ENDPOINT, {
                 method: 'GET',
-                headers: getAuthHeaders(env), // Using the new helper function
+                headers: getAuthHeaders(env),
             });
 
             if (!fetchResponse.ok) {
@@ -89,16 +107,19 @@ export default {
             // --- 4. Iterate and Update Target Rules ---
             const updatedRules = ruleset.result.rules.map(rule => {
                 if (targetRuleIdsArray.includes(rule.id)) {
+                    // Check if the current rule state is different from the desired state
                     if (rule.enabled !== desiredState) {
                         updateRequired = true;
                         console.log(`Rule ${rule.id} state change required: ${rule.enabled} -> ${desiredState}.`);
                         return {
                             ...rule,
-                            enabled: desiredState,
+                            enabled: desiredState, // Apply the new state
                         };
                     }
+                    // State is correct, return rule unchanged
                     return rule;
                 }
+                // Non-target rule, return rule unchanged
                 return rule;
             });
 
@@ -110,7 +131,7 @@ export default {
 
             const updateResponse = await fetch(API_ENDPOINT, {
                 method: 'PUT',
-                headers: getAuthHeaders(env), // Using the new helper function
+                headers: getAuthHeaders(env),
                 body: JSON.stringify({
                     rules: updatedRules,
                 }),
