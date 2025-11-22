@@ -40,8 +40,7 @@ function getAuthHeaders(env: WorkerEnv): HeadersInit {
 
 export default {
     /**
-     * Handles incoming HTTP requests. Required to prevent "No fetch handler!" errors,
-     * though the primary function of this worker is scheduled tasks.
+     * Handles incoming HTTP requests. Required to prevent "No fetch handler!" errors.
      */
     async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
         return new Response("This worker is dedicated to running scheduled Magic Firewall updates. Status: OK.", {
@@ -103,6 +102,8 @@ export default {
 
             const ruleset: { result: { rules: RuleItem[] } } = await fetchResponse.json() as any;
             let updateRequired = false;
+            // Array to store the IDs of rules that actually changed state
+            const updatedRuleIds: string[] = [];
 
             // --- 4. Iterate and Update Target Rules ---
             const updatedRules = ruleset.result.rules.map(rule => {
@@ -110,6 +111,10 @@ export default {
                     // Check if the current rule state is different from the desired state
                     if (rule.enabled !== desiredState) {
                         updateRequired = true;
+
+                        // Capture the ID of the rule that is about to change
+                        updatedRuleIds.push(rule.id);
+
                         console.log(`Rule ${rule.id} state change required: ${rule.enabled} -> ${desiredState}.`);
                         return {
                             ...rule,
@@ -141,7 +146,9 @@ export default {
                 throw new Error(`API Update Error: ${updateResponse.status} - ${await updateResponse.text()}`);
             }
 
-            console.log(`✅ Successfully updated the ruleset. Rules set to: ${desiredState ? 'Enabled' : 'Disabled'}.`);
+            // Update the final log output to include the specific impacted IDs
+            const impactedIdsString = updatedRuleIds.join(', ');
+            console.log(`✅ Successfully updated the ruleset. Rules set to: ${desiredState ? 'Enabled' : 'Disabled'}. Impacted Rule IDs: [${impactedIdsString}]`);
 
         } catch (error) {
             console.error('An unexpected error occurred during API operations:', error);
