@@ -9,17 +9,18 @@ ACCOUNT_ID = "7a0c39354edd897a1a98f6c7e50c6873"
 RULESET_ID = "35b415058b9f48009854421db12d7dd4" 
 #TARGET_RULE_IDS = "rule_id_one,rule_id_two,rule_id_three"
 TARGET_RULE_IDS = "2ad7785e2650451c9d308781bd1fe8cd"
+# Time settings for period when rule state should change
+ENABLE_HOUR_UTC = 17 
+DISABLE_HOUR_UTC = 1 
 
 [triggers]
 # Cron Trigger: Runs every 15 minutes to check the state of the target rules
 crons = [ "*/15 * * * *" ]
 
-[log_push]
+[placement]
+mode = "smart"
 # Enables the sending of Worker logs (console.log, console.error) 
-# to Cloudflare's Log push service. This is required for retaining logs.
-enabled = true
-
-[tracing]
+log_push = true
 # Enables tracing for the Worker's requests (including scheduled executions).
 # This is often needed for observability in tools like Cloudflare Analytics.
-enabled = true
+tracing = true

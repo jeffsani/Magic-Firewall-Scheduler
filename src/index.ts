@@ -1,14 +1,6 @@
 // src/index.ts
 
-// 🌐 Import types for Cloudflare Worker environment and Cron
 import type { ExecutionContext, Env, Request } from '@cloudflare/workers-types';
-
-// --- CONFIGURATION ---
-// Set the desired ON/OFF hours in UTC (0-23).
-// Example: Enable at 9:00 AM PST (17 UTC) and Disable at 5:00 PM PST (1 UTC, next day).
-const ENABLE_HOUR_UTC = 17;
-const DISABLE_HOUR_UTC = 1;
-// ---------------------
 
 interface RuleItem {
     id: string;
@@ -19,14 +11,18 @@ interface RuleItem {
 }
 
 interface WorkerEnv extends Env {
-    // Global API Key/Email for Authentication (set as secrets)
+    // Authentication Secrets
     CLOUDFLARE_API_KEY: string;
     CLOUDFLARE_EMAIL: string;
 
     // Variables from wrangler.toml
     ACCOUNT_ID: string;
     RULESET_ID: string;
-    TARGET_RULE_IDS: string; // Comma-separated list of rule IDs
+    TARGET_RULE_IDS: string;
+
+    // Time settings are now environment variables (numbers)
+    ENABLE_HOUR_UTC: number;
+    DISABLE_HOUR_UTC: number;
 }
 
 // Helper function to create the required Global API Key headers
@@ -39,9 +35,6 @@ function getAuthHeaders(env: WorkerEnv): HeadersInit {
 }
 
 export default {
-    /**
-     * Handles incoming HTTP requests. Required to prevent "No fetch handler!" errors.
-     */
     async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
         return new Response("This worker is dedicated to running scheduled Magic Firewall updates. Status: OK.", {
             status: 200,
@@ -49,9 +42,6 @@ export default {
         });
     },
 
-    /**
-     * The main scheduled handler triggered by the Cron configuration.
-     */
     async scheduled(
         event: ScheduledEvent,
         env: WorkerEnv,
@@ -61,32 +51,24 @@ export default {
         const currentHourUtc = now.getUTCHours();
 
         // --- 1. Determine the Desired State based on UTC time ---
+        // Variables are now accessed via env.ENABLE_HOUR_UTC and env.DISABLE_HOUR_UTC
         let desiredState: boolean;
-        if (ENABLE_HOUR_UTC < DISABLE_HOUR_UTC) {
-            // Standard window (e.g., 9-17 UTC)
-            desiredState = currentHourUtc >= ENABLE_HOUR_UTC && currentHourUtc < DISABLE_HOUR_UTC;
+        if (env.ENABLE_HOUR_UTC < env.DISABLE_HOUR_UTC) {
+            desiredState = currentHourUtc >= env.ENABLE_HOUR_UTC && currentHourUtc < env.DISABLE_HOUR_UTC;
         } else {
-            // Window crosses midnight (e.g., 17-01 UTC)
-            desiredState = currentHourUtc >= ENABLE_HOUR_UTC || currentHourUtc < DISABLE_HOUR_UTC;
+            desiredState = currentHourUtc >= env.ENABLE_HOUR_UTC || currentHourUtc < env.DISABLE_HOUR_UTC;
         }
 
-        // Convert the comma-separated string of IDs into an array
         const targetRuleIdsArray = env.TARGET_RULE_IDS.split(',').filter(id => id.trim() !== '');
-
-        if (targetRuleIdsArray.length === 0) {
-            console.error("TARGET_RULE_IDS is empty or not configured correctly.");
-            return;
-        }
 
         console.log(`Cron triggered at ${now.toISOString()}. Desired Rule State: ${desiredState ? 'Enabled' : 'Disabled'} for ${targetRuleIdsArray.length} rules.`);
 
         // --- 2. Validation and API Endpoint Setup ---
         if (!env.CLOUDFLARE_API_KEY || !env.CLOUDFLARE_EMAIL || !env.RULESET_ID || !env.ACCOUNT_ID) {
-            console.error("Missing required environment variables (Email, Key, Ruleset ID, OR ACCOUNT ID).");
+            console.error("Missing required environment variables.");
             return;
         }
 
-        // Correct API Endpoint URL structure for Account-level Rulesets
         const API_ENDPOINT = `https://api.cloudflare.com/client/v4/accounts/${env.ACCOUNT_ID}/rulesets/${env.RULESET_ID}`;
 
         try {
@@ -102,29 +84,22 @@ export default {
 
             const ruleset: { result: { rules: RuleItem[] } } = await fetchResponse.json() as any;
             let updateRequired = false;
-            // Array to store the IDs of rules that actually changed state
             const updatedRuleIds: string[] = [];
 
             // --- 4. Iterate and Update Target Rules ---
             const updatedRules = ruleset.result.rules.map(rule => {
                 if (targetRuleIdsArray.includes(rule.id)) {
-                    // Check if the current rule state is different from the desired state
                     if (rule.enabled !== desiredState) {
                         updateRequired = true;
-
-                        // Capture the ID of the rule that is about to change
                         updatedRuleIds.push(rule.id);
-
                         console.log(`Rule ${rule.id} state change required: ${rule.enabled} -> ${desiredState}.`);
                         return {
                             ...rule,
-                            enabled: desiredState, // Apply the new state
+                            enabled: desiredState,
                         };
                     }
-                    // State is correct, return rule unchanged
                     return rule;
                 }
-                // Non-target rule, return rule unchanged
                 return rule;
             });
 
@@ -146,7 +121,6 @@ export default {
                 throw new Error(`API Update Error: ${updateResponse.status} - ${await updateResponse.text()}`);
             }
 
-            // Update the final log output to include the specific impacted IDs
             const impactedIdsString = updatedRuleIds.join(', ');
             console.log(`✅ Successfully updated the ruleset. Rules set to: ${desiredState ? 'Enabled' : 'Disabled'}. Impacted Rule IDs: [${impactedIdsString}]`);
 
