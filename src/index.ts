@@ -23,6 +23,9 @@ interface WorkerEnv extends Env {
     // Time settings are now environment variables (numbers)
     ENABLE_HOUR_UTC: number;
     DISABLE_HOUR_UTC: number;
+
+    // Toggle to enable/disable the worker's scheduled logic
+    WORKER_ENABLED: string;
 }
 
 // Helper function to create the required Global API Key headers
@@ -36,7 +39,8 @@ function getAuthHeaders(env: WorkerEnv): HeadersInit {
 
 export default {
     async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
-        return new Response("This worker is dedicated to running scheduled Magic Firewall updates. Status: OK.", {
+        const enabled = env.WORKER_ENABLED !== 'false';
+        return new Response(`This worker is dedicated to running scheduled Magic Firewall updates. Status: ${enabled ? 'ENABLED' : 'DISABLED'}.`, {
             status: 200,
             headers: { 'Content-Type': 'text/plain' },
         });
@@ -47,6 +51,11 @@ export default {
         env: WorkerEnv,
         ctx: ExecutionContext
     ): Promise<void> {
+        if (env.WORKER_ENABLED === 'false') {
+            console.log('Worker is disabled via WORKER_ENABLED=false. Skipping scheduled execution.');
+            return;
+        }
+
         const now = new Date();
         const currentHourUtc = now.getUTCHours();
 

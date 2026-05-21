@@ -12,6 +12,8 @@ TARGET_RULE_IDS = "2ad7785e2650451c9d308781bd1fe8cd"
 # Time settings for period when rule state should change
 ENABLE_HOUR_UTC = 17 
 DISABLE_HOUR_UTC = 1 
+# Toggle to enable/disable the worker's scheduled logic ("true" or "false")
+WORKER_ENABLED = "true"
 
 [triggers]
 # Cron Trigger: Runs every 15 minutes to check the state of the target rules
