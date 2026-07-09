@@ -1,6 +1,7 @@
 name = "magic-firewall-rule-scheduler"
 main = "src/index.ts"
 compatibility_date = "2025-11-17"
+compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # REPLACE THIS PLACEHOLDERS WITH YOUR ACTUAL IDs
@@ -14,10 +15,18 @@ ENABLE_HOUR_UTC = 17
 DISABLE_HOUR_UTC = 1 
 # Toggle to enable/disable the worker's scheduled logic ("true" or "false")
 WORKER_ENABLED = "true"
+# CF Access
+ENVIRONMENT = "production"
+CF_ACCESS_TEAM_DOMAIN = "cloudflare"
 
 [triggers]
 # Cron Trigger: Runs every 15 minutes to check the state of the target rules
 crons = [ "*/15 * * * *" ]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "mfw-automation-db"
+database_id = "47a5234c-75d6-4b8a-af72-29eb1d82aac2"
 
 [placement]
 mode = "smart"
@@ -26,3 +35,13 @@ log_push = true
 # Enables tracing for the Worker's requests (including scheduled executions).
 # This is often needed for observability in tools like Cloudflare Analytics.
 tracing = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true

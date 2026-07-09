@@ -1,93 +1,118 @@
 # Worker MFW Automation
 
+A Cloudflare Worker that automates Magic Firewall rule scheduling. Configure multiple accounts, auto-discover rulesets, create schedules that enable/disable specific firewall rules on a time-based cadence, and visualize everything in a web dashboard.
 
+## Features
 
-## Getting started
+- **Multi-account support** — manage multiple Cloudflare accounts from a single dashboard
+- **Auto-discovery** — automatically detects the Magic Firewall ruleset via the `magic_transit` phase entrypoint (no manual ruleset ID entry required)
+- **Rule enumeration** — fetches and displays all rules in the ruleset with a multi-select picker
+- **Multiple schedules** — create multiple schedules per account, each targeting different rules with independent enable/disable time windows
+- **Timeline visualization** — color-coded multi-schedule timeline showing active/inactive hours with current time marker
+- **Manual override** — force enable/disable all scheduled rules with one click
+- **Activity log** — tracks all actions (schedule changes, manual toggles, etc.)
+- **Cloudflare Access** — protected by Cloudflare Access for authentication
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## API Token Permissions
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+This worker authenticates to the Cloudflare API using a **Global API Key** (via `X-Auth-Email` + `X-Auth-Key` headers). The API key must belong to an account member with the following permissions:
 
-## Add your files
+### Required Permissions
 
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+| Permission | Access | Purpose |
+|---|---|---|
+| **Magic Firewall Read** | Read | Auto-discover the `magic_transit` phase entrypoint ruleset and enumerate rules |
+| **Magic Firewall Write** | Write | Enable/disable individual rules within the ruleset |
+| **Account Rulesets Read** | Read | List and view rulesets at the account level |
+| **Account Rulesets Write** | Write | Update ruleset rules (toggle enabled state) |
+
+### How It Works
+
+1. **Ruleset discovery** — The worker calls `GET /accounts/{account_id}/rulesets/phases/magic_transit/entrypoint` to find the Magic Firewall root ruleset. This requires **Magic Firewall Read** and **Account Rulesets Read**.
+2. **Rule enumeration** — Rules are returned as part of the entrypoint response, or fetched via `GET /accounts/{account_id}/rulesets/{ruleset_id}`.
+3. **Rule toggling** — When enabling/disabling rules, the worker sends `PUT /accounts/{account_id}/rulesets/{ruleset_id}` with the full rule list (with `enabled` flags modified). This requires **Magic Firewall Write** and **Account Rulesets Write**.
+
+> **Note:** If you prefer to use an API Token instead of a Global API Key, create a token with the permissions listed above scoped to the target account. You will need to modify the auth headers in `src/index.ts` to use `Authorization: Bearer <token>` instead of the `X-Auth-Email` / `X-Auth-Key` pair.
+
+## Tech Stack
+
+- **Runtime** — Cloudflare Workers
+- **Framework** — [Hono](https://hono.dev/)
+- **Database** — Cloudflare D1 (SQLite)
+- **Auth** — Cloudflare Access (JWT validation)
+- **Styling** — Tailwind CSS (via CDN)
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/)
+- A Cloudflare account with Magic Firewall enabled
+
+### Local Development
+
+```bash
+# Install dependencies
+npm install
+
+# Initialize the local D1 database
+npx wrangler d1 execute mfw-automation-db --local --file=schema.sql
+
+# Start dev server
+npx wrangler dev --port 8788
+```
+
+### Configuration
+
+1. Open the dashboard in your browser
+2. Click the **gear icon** in the header to open the Accounts panel
+3. Add an account with:
+   - **Label** — friendly name (optional)
+   - **Account ID** — your Cloudflare account ID
+   - **API Email** — email associated with the Global API Key
+   - **Global API Key** — your Cloudflare Global API Key
+   - **Ruleset ID** — leave blank to auto-discover
+4. Select the account as active
+5. Create schedules: pick rules from the multi-select dropdown and set enable/disable hours (UTC)
+
+### Deployment
+
+```bash
+# Create the D1 database (first time only)
+npx wrangler d1 create mfw-automation-db
+
+# Apply schema to remote database
+npx wrangler d1 execute mfw-automation-db --remote --file=schema.sql
+
+# Deploy the worker
+npx wrangler deploy
+```
+
+## Project Structure
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.cfdata.org/sani/worker-mfw-automation.git
-git branch -M main
-git push -uf origin main
+src/
+  index.ts    — API routes (accounts, rules, schedules, status, toggle)
+  ui.ts       — Dashboard HTML/CSS/JS (single-file SPA)
+  types.ts    — TypeScript interfaces (Env, UserAccount, Schedule, RuleItem)
+  auth.ts     — Cloudflare Access JWT validation middleware
+schema.sql    — D1 database schema (user_accounts, schedules, activity_log)
+wrangler.toml — Worker configuration
 ```
 
-## Integrate with your tools
+## API Endpoints
 
-- [ ] [Set up project integrations](https://gitlab.cfdata.org/sani/worker-mfw-automation/-/settings/integrations)
-
-## Collaborate with your team
-
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/settings` | List all accounts for the authenticated user |
+| `POST` | `/api/settings` | Create or update an account |
+| `DELETE` | `/api/settings/:id` | Delete an account (cascades to schedules) |
+| `PUT` | `/api/settings/:id/default` | Set an account as default |
+| `POST` | `/api/rules` | Fetch rules from the account's Magic Firewall ruleset |
+| `GET` | `/api/schedules` | List schedules (optional `?account_id` filter) |
+| `POST` | `/api/schedules` | Create or update a schedule |
+| `DELETE` | `/api/schedules/:id` | Delete a schedule |
+| `POST` | `/api/status` | Get rule status with schedule associations |
+| `POST` | `/api/toggle` | Force enable/disable rules |
+| `GET` | `/api/activity` | Recent activity log |
