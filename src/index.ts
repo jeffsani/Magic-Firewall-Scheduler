@@ -21,8 +21,7 @@ app.get('/api/me', (c) => c.json({ email: c.get('userEmail') }));
 // Helper: build auth headers from account
 function getApiHeaders(acct: UserAccount): HeadersInit {
   return {
-    'X-Auth-Email': acct.api_email,
-    'X-Auth-Key': acct.api_key,
+    'Authorization': 'Bearer ' + acct.api_token,
     'Content-Type': 'application/json',
   };
 }
@@ -30,8 +29,7 @@ function getApiHeaders(acct: UserAccount): HeadersInit {
 // Helper: build auth headers from env (for scheduled handler)
 function getEnvAuthHeaders(env: Env): HeadersInit {
   return {
-    'X-Auth-Email': env.CLOUDFLARE_EMAIL,
-    'X-Auth-Key': env.CLOUDFLARE_API_KEY,
+    'Authorization': 'Bearer ' + env.CLOUDFLARE_API_TOKEN,
     'Content-Type': 'application/json',
   };
 }
@@ -103,15 +101,14 @@ async function fetchRulesetRules(acct: UserAccount): Promise<{ ruleset_id: strin
 app.get('/api/settings', async (c) => {
   const email = c.get('userEmail');
   const rows = await c.env.DB.prepare(
-    'SELECT id, account_label, account_id, api_email, api_key, ruleset_id, is_default FROM user_accounts WHERE user_email = ? ORDER BY is_default DESC, account_label ASC'
+    'SELECT id, account_label, account_id, api_token, ruleset_id, is_default FROM user_accounts WHERE user_email = ? ORDER BY is_default DESC, account_label ASC'
   ).bind(email).all();
 
   const accounts = (rows.results || []).map((r: any) => ({
     id: r.id,
     account_label: r.account_label || r.account_id,
     account_id: r.account_id,
-    api_email: r.api_email,
-    has_key: !!r.api_key,
+    has_token: !!r.api_token,
     ruleset_id: r.ruleset_id || '',
     is_default: !!r.is_default,
   }));
@@ -122,7 +119,7 @@ app.get('/api/settings', async (c) => {
 app.post('/api/settings', async (c) => {
   const email = c.get('userEmail');
   const body = await c.req.json<{
-    account_id?: string; account_label?: string; api_email?: string; api_key?: string;
+    account_id?: string; account_label?: string; api_token?: string;
     ruleset_id?: string;
   }>();
 
@@ -131,21 +128,21 @@ app.post('/api/settings', async (c) => {
   if (!accountId) return c.json({ ok: false, error: 'Account ID is required.' }, 400);
 
   const existing = await c.env.DB.prepare(
-    'SELECT id, api_key FROM user_accounts WHERE user_email = ? AND account_id = ?'
+    'SELECT id, api_token FROM user_accounts WHERE user_email = ? AND account_id = ?'
   ).bind(email, accountId).first<UserAccount>();
 
-  const apiKey = (body.api_key && !body.api_key.startsWith('*'))
-    ? body.api_key
-    : (existing?.api_key || '');
+  const apiToken = (body.api_token && !body.api_token.startsWith('*'))
+    ? body.api_token
+    : (existing?.api_token || '');
 
   if (existing) {
     await c.env.DB.prepare(
-      `UPDATE user_accounts SET account_label = ?, api_email = ?, api_key = ?, ruleset_id = ?, updated_at = datetime('now') WHERE id = ?`
-    ).bind(accountLabel, body.api_email || '', apiKey, body.ruleset_id || '', existing.id).run();
+      `UPDATE user_accounts SET account_label = ?, api_token = ?, ruleset_id = ?, updated_at = datetime('now') WHERE id = ?`
+    ).bind(accountLabel, apiToken, body.ruleset_id || '', existing.id).run();
   } else {
     await c.env.DB.prepare(
-      'INSERT INTO user_accounts (user_email, account_label, account_id, api_email, api_key, ruleset_id) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(email, accountLabel, accountId, body.api_email || '', apiKey, body.ruleset_id || '').run();
+      'INSERT INTO user_accounts (user_email, account_label, account_id, api_token, ruleset_id) VALUES (?, ?, ?, ?, ?)'
+    ).bind(email, accountLabel, accountId, apiToken, body.ruleset_id || '').run();
   }
 
   await logActivity(c.env.DB, email, 'settings_saved', 'Account ' + accountId + ' saved');
@@ -179,8 +176,8 @@ app.post('/api/rules', async (c) => {
   const body = await c.req.json<{ account_id?: string }>();
   const acct = await resolveAccount(c.env.DB, email, body.account_id);
 
-  if (!acct || !acct.account_id || !acct.api_key || !acct.api_email) {
-    return c.json({ ok: false, error: 'Configure your account first (Account ID, API Email, and API Key are required).' });
+  if (!acct || !acct.account_id || !acct.api_token) {
+    return c.json({ ok: false, error: 'Configure your account first (Account ID and API Token are required).' });
   }
 
   try {
@@ -208,6 +205,84 @@ app.post('/api/rules', async (c) => {
   } catch (err: any) {
     return c.json({ ok: false, error: 'Network error: ' + err.message }, 502);
   }
+});
+
+// ─── Test Token (permission checker) ───
+
+app.post('/api/test-token', async (c) => {
+  const email = c.get('userEmail');
+  const body = await c.req.json<{ api_token?: string; account_id?: string }>();
+  let token = (body.api_token ?? '').trim();
+  const accountId = (body.account_id ?? '').trim();
+
+  if (!accountId) {
+    return c.json({ ok: false, error: 'Account ID is required.' });
+  }
+
+  // If no token provided (or masked), look up the stored one
+  if (!token || token.startsWith('*')) {
+    const acct = await resolveAccount(c.env.DB, email, accountId);
+    token = acct?.api_token || '';
+  }
+
+  if (!token) {
+    return c.json({ ok: false, error: 'No API Token found. Enter a token and save the account first.' });
+  }
+
+  const headers: HeadersInit = {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+  };
+
+  const checks: { name: string; status: string; detail: string }[] = [];
+
+  // 1. Verify token is valid
+  try {
+    const verifyResp = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', { headers });
+    const verifyData = await verifyResp.json() as any;
+    if (verifyResp.ok && verifyData.success) {
+      checks.push({ name: 'Token Valid', status: 'pass', detail: 'Status: ' + (verifyData.result?.status || 'active') });
+    } else {
+      const msg = (verifyData.errors || []).map((e: any) => e.message).join('; ') || 'Invalid token';
+      checks.push({ name: 'Token Valid', status: 'fail', detail: msg });
+      return c.json({ ok: false, checks, error: 'Token is invalid: ' + msg });
+    }
+  } catch (err: any) {
+    checks.push({ name: 'Token Valid', status: 'fail', detail: 'Network error: ' + err.message });
+    return c.json({ ok: false, checks, error: 'Could not verify token.' });
+  }
+
+  // 2. Check account access — list rulesets
+  try {
+    const rsResp = await fetch('https://api.cloudflare.com/client/v4/accounts/' + accountId + '/rulesets', { headers });
+    const rsData = await rsResp.json() as any;
+    if (rsResp.ok && rsData.success) {
+      checks.push({ name: 'Account Rulesets (Read)', status: 'pass', detail: rsData.result?.length + ' rulesets found' });
+    } else {
+      const msg = (rsData.errors || []).map((e: any) => e.message).join('; ') || rsResp.status.toString();
+      checks.push({ name: 'Account Rulesets (Read)', status: 'fail', detail: msg });
+    }
+  } catch (err: any) {
+    checks.push({ name: 'Account Rulesets (Read)', status: 'fail', detail: 'Network error' });
+  }
+
+  // 3. Check Magic Firewall access — phase entrypoint
+  try {
+    const mfwResp = await fetch('https://api.cloudflare.com/client/v4/accounts/' + accountId + '/rulesets/phases/magic_transit/entrypoint', { headers });
+    const mfwData = await mfwResp.json() as any;
+    if (mfwResp.ok && mfwData.success) {
+      const ruleCount = mfwData.result?.rules?.length || 0;
+      checks.push({ name: 'Magic Firewall (Read)', status: 'pass', detail: 'Ruleset found with ' + ruleCount + ' rules' });
+    } else {
+      const msg = (mfwData.errors || []).map((e: any) => e.message).join('; ') || mfwResp.status.toString();
+      checks.push({ name: 'Magic Firewall (Read)', status: 'fail', detail: msg });
+    }
+  } catch (err: any) {
+    checks.push({ name: 'Magic Firewall (Read)', status: 'fail', detail: 'Network error' });
+  }
+
+  const allPassed = checks.every(function(ch) { return ch.status === 'pass'; });
+  return c.json({ ok: allPassed, checks });
 });
 
 // ─── Schedules CRUD ───
@@ -275,7 +350,7 @@ app.post('/api/status', async (c) => {
   const body = await c.req.json<{ account_id?: string }>();
   const acct = await resolveAccount(c.env.DB, email, body.account_id);
 
-  if (!acct || !acct.account_id || !acct.api_key || !acct.api_email) {
+  if (!acct || !acct.account_id || !acct.api_token) {
     return c.json({ ok: false, error: 'Configure your account settings first.' });
   }
 
@@ -347,7 +422,7 @@ app.post('/api/toggle', async (c) => {
   const body = await c.req.json<{ enabled: boolean; account_id?: string; rule_ids?: string[] }>();
   const acct = await resolveAccount(c.env.DB, email, body.account_id);
 
-  if (!acct || !acct.account_id || !acct.api_key || !acct.api_email) {
+  if (!acct || !acct.account_id || !acct.api_token) {
     return c.json({ ok: false, error: 'Configure your account settings first.' });
   }
 
@@ -447,7 +522,7 @@ async function handleScheduled(env: Env): Promise<void> {
 
   console.log('Cron triggered at ' + now.toISOString() + '. Desired Rule State: ' + (desiredState ? 'Enabled' : 'Disabled') + ' for ' + targetRuleIdsArray.length + ' rules.');
 
-  if (!env.CLOUDFLARE_API_KEY || !env.CLOUDFLARE_EMAIL || !env.RULESET_ID || !env.ACCOUNT_ID) {
+  if (!env.CLOUDFLARE_API_TOKEN || !env.RULESET_ID || !env.ACCOUNT_ID) {
     console.error('Missing required environment variables.');
     return;
   }

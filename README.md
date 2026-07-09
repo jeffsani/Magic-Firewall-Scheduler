@@ -15,24 +15,26 @@ A Cloudflare Worker that automates Magic Firewall rule scheduling. Configure mul
 
 ## API Token Permissions
 
-This worker authenticates to the Cloudflare API using a **Global API Key** (via `X-Auth-Email` + `X-Auth-Key` headers). The API key must belong to an account member with the following permissions:
+This worker authenticates to the Cloudflare API using a scoped **API Token** (via `Authorization: Bearer <token>` header). Create an API Token in the Cloudflare dashboard under **My Profile > API Tokens > Create Token**.
 
-### Required Permissions
+### Required Token Permissions
+
+When creating the token, scope it to the target account and grant the following permissions:
 
 | Permission | Access | Purpose |
 |---|---|---|
-| **Magic Firewall Read** | Read | Auto-discover the `magic_transit` phase entrypoint ruleset and enumerate rules |
-| **Magic Firewall Write** | Write | Enable/disable individual rules within the ruleset |
-| **Account Rulesets Read** | Read | List and view rulesets at the account level |
-| **Account Rulesets Write** | Write | Update ruleset rules (toggle enabled state) |
+| **Magic Firewall Packet Filter** | Edit | Auto-discover the `magic_transit` phase entrypoint ruleset, enumerate rules, and toggle rule enabled state |
+| **Account Rulesets** | Edit | List, view, and update rulesets at the account level |
+
+> **Note:** "Edit" access includes read. You do not need to add separate read-only entries.
 
 ### How It Works
 
-1. **Ruleset discovery** — The worker calls `GET /accounts/{account_id}/rulesets/phases/magic_transit/entrypoint` to find the Magic Firewall root ruleset. This requires **Magic Firewall Read** and **Account Rulesets Read**.
+1. **Ruleset discovery** — The worker calls `GET /accounts/{account_id}/rulesets/phases/magic_transit/entrypoint` to find the Magic Firewall root ruleset.
 2. **Rule enumeration** — Rules are returned as part of the entrypoint response, or fetched via `GET /accounts/{account_id}/rulesets/{ruleset_id}`.
-3. **Rule toggling** — When enabling/disabling rules, the worker sends `PUT /accounts/{account_id}/rulesets/{ruleset_id}` with the full rule list (with `enabled` flags modified). This requires **Magic Firewall Write** and **Account Rulesets Write**.
+3. **Rule toggling** — When enabling/disabling rules, the worker sends `PUT /accounts/{account_id}/rulesets/{ruleset_id}` with the full rule list (with `enabled` flags modified).
 
-> **Note:** If you prefer to use an API Token instead of a Global API Key, create a token with the permissions listed above scoped to the target account. You will need to modify the auth headers in `src/index.ts` to use `Authorization: Bearer <token>` instead of the `X-Auth-Email` / `X-Auth-Key` pair.
+All API calls use the `Authorization: Bearer <token>` header. No Global API Key or email is required.
 
 ## Tech Stack
 
@@ -70,8 +72,7 @@ npx wrangler dev --port 8788
 3. Add an account with:
    - **Label** — friendly name (optional)
    - **Account ID** — your Cloudflare account ID
-   - **API Email** — email associated with the Global API Key
-   - **Global API Key** — your Cloudflare Global API Key
+   - **API Token** — scoped API token with Magic Firewall permissions (see [API Token Permissions](#api-token-permissions))
    - **Ruleset ID** — leave blank to auto-discover
 4. Select the account as active
 5. Create schedules: pick rules from the multi-select dropdown and set enable/disable hours (UTC)

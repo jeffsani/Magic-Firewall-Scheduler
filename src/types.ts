@@ -3,8 +3,7 @@ export interface Env {
   DB: D1Database;
 
   // Authentication Secrets (for scheduled handler)
-  CLOUDFLARE_API_KEY: string;
-  CLOUDFLARE_EMAIL: string;
+  CLOUDFLARE_API_TOKEN: string;
 
   // Variables from wrangler.toml (for scheduled handler)
   ACCOUNT_ID: string;
@@ -24,8 +23,7 @@ export interface UserAccount {
   user_email: string;
   account_label: string;
   account_id: string;
-  api_email: string;
-  api_key: string;
+  api_token: string;
   ruleset_id: string;
   is_default: number;
   updated_at: string;

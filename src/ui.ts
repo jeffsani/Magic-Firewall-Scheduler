@@ -114,25 +114,21 @@ export function renderDashboard(userEmail: string): string {
             <input type="text" id="cfg-account-id" class="w-full bg-cf-dark border border-cf-border rounded-lg px-3 py-2 text-sm text-white" placeholder="e.g. 7a0c39354edd...">
           </div>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-medium text-cf-gray mb-1">API Email</label>
-            <input type="email" id="cfg-api-email" class="w-full bg-cf-dark border border-cf-border rounded-lg px-3 py-2 text-sm text-white" placeholder="user@example.com">
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-cf-gray mb-1">Global API Key</label>
-            <input type="password" id="cfg-api-key" class="w-full bg-cf-dark border border-cf-border rounded-lg px-3 py-2 text-sm text-white" placeholder="Your Global API Key">
-          </div>
+        <div>
+          <label class="block text-xs font-medium text-cf-gray mb-1">API Token</label>
+          <input type="password" id="cfg-api-token" class="w-full bg-cf-dark border border-cf-border rounded-lg px-3 py-2 text-sm text-white" placeholder="Account-scoped API token with Magic Firewall permissions">
         </div>
         <div>
           <label class="block text-xs font-medium text-cf-gray mb-1">Ruleset ID <span class="text-[10px]">(auto-detected if blank)</span></label>
           <input type="text" id="cfg-ruleset-id" class="w-full bg-cf-dark border border-cf-border rounded-lg px-3 py-2 text-sm text-white" placeholder="Leave blank to auto-discover">
         </div>
-        <div class="flex gap-2 items-center">
+        <div class="flex gap-2 items-center flex-wrap">
           <button onclick="saveAccount()" class="px-4 py-1.5 bg-cf-orange text-black text-xs font-bold rounded-lg hover:opacity-90">Save Account</button>
+          <button onclick="testToken()" class="px-4 py-1.5 text-xs font-semibold rounded-lg border border-cf-border text-cf-gray hover:border-blue-500 hover:text-blue-400">Test Token</button>
           <button onclick="hideAccountForm()" class="px-4 py-1.5 text-xs text-cf-gray hover:text-white">Cancel</button>
           <span id="settings-status" class="text-xs text-cf-gray self-center"></span>
         </div>
+        <div id="token-test-results" class="hidden mt-2 border border-cf-border rounded-lg p-3 space-y-1.5 bg-cf-dark"></div>
       </div>
 
       <!-- Active account selector -->
@@ -236,11 +232,11 @@ export function renderDashboard(userEmail: string): string {
     <div class="panel fade-in p-5 space-y-3">
       <h2 class="text-sm font-semibold" style="color:var(--text-strong)">Quick Actions</h2>
       <div class="flex flex-wrap gap-2">
-        <button onclick="forceToggle(true)" class="px-4 py-2 text-xs font-semibold rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5">
+        <button onclick="forceToggle(true)" class="px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5" style="background:rgba(34,197,94,0.25);border:1px solid rgba(34,197,94,0.5);color:#22c55e" onmouseover="this.style.background='rgba(34,197,94,0.4)'" onmouseout="this.style.background='rgba(34,197,94,0.25)'">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           Force Enable All
         </button>
-        <button onclick="forceToggle(false)" class="px-4 py-2 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 flex items-center gap-1.5">
+        <button onclick="forceToggle(false)" class="px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);color:#ef4444" onmouseover="this.style.background='rgba(239,68,68,0.25)'" onmouseout="this.style.background='rgba(239,68,68,0.12)'">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
           Force Disable All
         </button>
@@ -252,11 +248,11 @@ export function renderDashboard(userEmail: string): string {
     <div class="panel fade-in p-5 space-y-3">
       <div class="flex items-center justify-between cursor-pointer" onclick="toggleActivityBody()">
         <div class="flex items-center gap-2">
-          <svg id="activity-chevron" class="w-4 h-4 text-cf-gray transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          <svg id="activity-chevron" class="w-4 h-4 text-cf-gray transition-transform" style="transform:rotate(-90deg)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
           <h2 class="text-sm font-semibold" style="color:var(--text-strong)">Activity Log</h2>
         </div>
       </div>
-      <div id="activity-body">
+      <div id="activity-body" class="hidden">
         <div id="activity-content" class="space-y-1">
           <p class="text-xs text-cf-gray">Loading...</p>
         </div>
@@ -323,9 +319,9 @@ export function renderDashboard(userEmail: string): string {
       return;
     }
     container.innerHTML = savedAccounts.map(function(a) {
-      var keyBadge = a.has_key
-        ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-900 text-green-300">Key saved</span>'
-        : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900 text-red-300">No key</span>';
+      var keyBadge = a.has_token
+        ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-green-900 text-green-300">Token saved</span>'
+        : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-900 text-red-300">No token</span>';
       var defaultBadge = a.is_default
         ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-orange-900 text-orange-300">Default</span>'
         : '';
@@ -398,14 +394,15 @@ export function renderDashboard(userEmail: string): string {
     document.getElementById('cfg-account-label').value = '';
     document.getElementById('cfg-account-id').value = '';
     document.getElementById('cfg-account-id').removeAttribute('disabled');
-    document.getElementById('cfg-api-email').value = '';
-    document.getElementById('cfg-api-key').value = '';
+    document.getElementById('cfg-api-token').value = '';
     document.getElementById('cfg-ruleset-id').value = '';
   }
 
   function hideAccountForm() {
     document.getElementById('account-form').classList.add('hidden');
     document.getElementById('settings-status').textContent = '';
+    var tr = document.getElementById('token-test-results');
+    if (tr) { tr.classList.add('hidden'); tr.innerHTML = ''; }
   }
 
   function editAccount(id) {
@@ -416,8 +413,7 @@ export function renderDashboard(userEmail: string): string {
     document.getElementById('cfg-account-label').value = acct.account_label || '';
     document.getElementById('cfg-account-id').value = acct.account_id;
     document.getElementById('cfg-account-id').setAttribute('disabled', 'true');
-    document.getElementById('cfg-api-email').value = acct.api_email || '';
-    document.getElementById('cfg-api-key').value = acct.has_key ? '********' : '';
+    document.getElementById('cfg-api-token').value = acct.has_token ? '********' : '';
     document.getElementById('cfg-ruleset-id').value = acct.ruleset_id || '';
   }
 
@@ -444,8 +440,7 @@ export function renderDashboard(userEmail: string): string {
         body: JSON.stringify({
           account_id: document.getElementById('cfg-account-id').value.trim(),
           account_label: document.getElementById('cfg-account-label').value.trim(),
-          api_email: document.getElementById('cfg-api-email').value.trim(),
-          api_key: document.getElementById('cfg-api-key').value,
+          api_token: document.getElementById('cfg-api-token').value,
           ruleset_id: document.getElementById('cfg-ruleset-id').value.trim(),
         }),
       });
@@ -462,6 +457,58 @@ export function renderDashboard(userEmail: string): string {
   }
 
   // ============================================================
+  // TEST TOKEN (permissions checker)
+  // ============================================================
+  async function testToken() {
+    var token = document.getElementById('cfg-api-token').value;
+    var accountId = document.getElementById('cfg-account-id').value.trim();
+    var resultsDiv = document.getElementById('token-test-results');
+    resultsDiv.classList.remove('hidden');
+    resultsDiv.innerHTML = '<p class="text-xs text-cf-gray">Testing token permissions...</p>';
+
+    if (!accountId) {
+      resultsDiv.innerHTML = '<p class="text-xs text-red-400">Enter an Account ID first.</p>';
+      return;
+    }
+    if (!token) {
+      resultsDiv.innerHTML = '<p class="text-xs text-red-400">Enter an API Token first.</p>';
+      return;
+    }
+
+    try {
+      var resp = await fetch('/api/test-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_token: token, account_id: accountId }),
+      });
+      var data = await resp.json();
+      var html = '<p class="text-xs font-semibold mb-1" style="color:var(--text-strong)">Permission Check Results</p>';
+      (data.checks || []).forEach(function(ch) {
+        var icon = ch.status === 'pass'
+          ? '<span class="text-green-400 font-bold">&#10003;</span>'
+          : '<span class="text-red-400 font-bold">&#10007;</span>';
+        var detailColor = ch.status === 'pass' ? 'text-green-300' : 'text-red-300';
+        html += '<div class="flex items-start gap-2 text-xs">'
+          + icon
+          + '<span style="color:var(--text-strong)" class="font-medium">' + ch.name + '</span>'
+          + '<span class="' + detailColor + '">' + ch.detail + '</span>'
+          + '</div>';
+      });
+      if (data.ok) {
+        html += '<p class="text-xs text-green-400 mt-2 font-semibold">All checks passed — token has the required permissions.</p>';
+      } else if (data.error) {
+        html += '<p class="text-xs text-red-400 mt-2">' + data.error + '</p>';
+      } else {
+        html += '<p class="text-xs text-yellow-400 mt-2">Some permissions are missing. Ensure the token has <b>Magic Firewall Packet Filter: Edit</b> and <b>Account Rulesets: Edit</b>.</p>';
+      }
+      resultsDiv.innerHTML = html;
+    } catch(e) {
+      resultsDiv.innerHTML = '<p class="text-xs text-red-400">Network error: ' + e.message + '</p>';
+    }
+  }
+  window.testToken = testToken;
+
+  // ============================================================
   // RULES (auto-discovered)
   // ============================================================
   async function loadRulesForAccount() {
@@ -475,10 +522,19 @@ export function renderDashboard(userEmail: string): string {
       var data = await resp.json();
       if (data.ok) {
         cachedRules = data.rules || [];
+        if (cachedRules.length === 0) {
+          console.warn('[MFW] Rules API returned OK but 0 rules. Ruleset ID:', data.ruleset_id || '(auto-discovered)');
+        }
       } else {
         cachedRules = [];
+        console.error('[MFW] Rules API error:', data.error || 'Unknown error');
+        var container = document.getElementById('rule-options');
+        if (container) container.innerHTML = '<p class="text-xs text-red-400 px-3 py-2">' + (data.error || 'Error loading rules') + '</p>';
       }
-    } catch(e) { cachedRules = []; }
+    } catch(e) {
+      cachedRules = [];
+      console.error('[MFW] Rules fetch exception:', e);
+    }
   }
 
   // ============================================================
@@ -707,8 +763,8 @@ export function renderDashboard(userEmail: string): string {
       html += '<div class="flex" style="height:100%">';
       for (var i = 0; i < 24; i++) {
         var active = isActive(i);
-        var bg = active ? color + '40' : 'rgba(239,68,68,0.08)';
-        var border = active ? color + '80' : 'rgba(239,68,68,0.15)';
+        var bg = active ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.12)';
+        var border = active ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.25)';
         html += '<div style="width:' + (100/24).toFixed(2) + '%;background:' + bg + ';border:1px solid ' + border + '" title="' + i + ':00 UTC - ' + (active ? 'Enabled' : 'Disabled') + '"></div>';
       }
       html += '</div>';
@@ -718,11 +774,9 @@ export function renderDashboard(userEmail: string): string {
 
     // Legend
     html += '<div class="flex flex-wrap gap-4 text-[10px] text-cf-gray mt-2">';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(34,197,94,0.25);border:1px solid rgba(34,197,94,0.5);vertical-align:middle;margin-right:3px"></span>Enabled</span>';
+    html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);vertical-align:middle;margin-right:3px"></span>Disabled</span>';
     html += '<span><span style="display:inline-block;width:10px;height:2px;background:#F6821F;vertical-align:middle;margin-right:3px"></span>Current Time (UTC ' + nowHour + ':00)</span>';
-    savedSchedules.forEach(function(s, idx) {
-      var color = SCHED_COLORS[idx % SCHED_COLORS.length];
-      html += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + color + '40;border:1px solid ' + color + '80;vertical-align:middle;margin-right:3px"></span>' + (s.label || 'Schedule ' + (idx+1)) + ' (' + s.enable_hour_utc + ':00-' + s.disable_hour_utc + ':00)</span>';
-    });
     html += '</div>';
 
     container.innerHTML = html;
