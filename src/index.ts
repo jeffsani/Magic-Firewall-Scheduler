@@ -236,20 +236,19 @@ app.post('/api/test-token', async (c) => {
 
   const checks: { name: string; status: string; detail: string }[] = [];
 
-  // 1. Verify token is valid
+  // 1. Verify token — try /user/tokens/verify first (works for user tokens),
+  //    but don't block on failure since account tokens (cfat_) won't pass this.
   try {
     const verifyResp = await fetch('https://api.cloudflare.com/client/v4/user/tokens/verify', { headers });
     const verifyData = await verifyResp.json() as any;
     if (verifyResp.ok && verifyData.success) {
       checks.push({ name: 'Token Valid', status: 'pass', detail: 'Status: ' + (verifyData.result?.status || 'active') });
     } else {
-      const msg = (verifyData.errors || []).map((e: any) => e.message).join('; ') || 'Invalid token';
-      checks.push({ name: 'Token Valid', status: 'fail', detail: msg });
-      return c.json({ ok: false, checks, error: 'Token is invalid: ' + msg });
+      // Account tokens don't support /user/tokens/verify — skip, let the actual API calls validate
+      checks.push({ name: 'Token Valid', status: 'pass', detail: 'Skipped (account token) — will validate via API calls below' });
     }
   } catch (err: any) {
-    checks.push({ name: 'Token Valid', status: 'fail', detail: 'Network error: ' + err.message });
-    return c.json({ ok: false, checks, error: 'Could not verify token.' });
+    checks.push({ name: 'Token Valid', status: 'pass', detail: 'Skipped — will validate via API calls below' });
   }
 
   // 2. Check account access — list rulesets
@@ -257,13 +256,13 @@ app.post('/api/test-token', async (c) => {
     const rsResp = await fetch('https://api.cloudflare.com/client/v4/accounts/' + accountId + '/rulesets', { headers });
     const rsData = await rsResp.json() as any;
     if (rsResp.ok && rsData.success) {
-      checks.push({ name: 'Account Rulesets (Read)', status: 'pass', detail: rsData.result?.length + ' rulesets found' });
+      checks.push({ name: 'Account Rulesets', status: 'pass', detail: rsData.result?.length + ' rulesets found' });
     } else {
-      const msg = (rsData.errors || []).map((e: any) => e.message).join('; ') || rsResp.status.toString();
-      checks.push({ name: 'Account Rulesets (Read)', status: 'fail', detail: msg });
+      const msg = (rsData.errors || []).map((e: any) => e.message).join('; ') || 'HTTP ' + rsResp.status;
+      checks.push({ name: 'Account Rulesets', status: 'fail', detail: msg });
     }
   } catch (err: any) {
-    checks.push({ name: 'Account Rulesets (Read)', status: 'fail', detail: 'Network error' });
+    checks.push({ name: 'Account Rulesets', status: 'fail', detail: 'Network error' });
   }
 
   // 3. Check Magic Firewall access — phase entrypoint
@@ -272,13 +271,13 @@ app.post('/api/test-token', async (c) => {
     const mfwData = await mfwResp.json() as any;
     if (mfwResp.ok && mfwData.success) {
       const ruleCount = mfwData.result?.rules?.length || 0;
-      checks.push({ name: 'Magic Firewall (Read)', status: 'pass', detail: 'Ruleset found with ' + ruleCount + ' rules' });
+      checks.push({ name: 'Magic Firewall', status: 'pass', detail: 'Ruleset found with ' + ruleCount + ' rules' });
     } else {
-      const msg = (mfwData.errors || []).map((e: any) => e.message).join('; ') || mfwResp.status.toString();
-      checks.push({ name: 'Magic Firewall (Read)', status: 'fail', detail: msg });
+      const msg = (mfwData.errors || []).map((e: any) => e.message).join('; ') || 'HTTP ' + mfwResp.status;
+      checks.push({ name: 'Magic Firewall', status: 'fail', detail: msg });
     }
   } catch (err: any) {
-    checks.push({ name: 'Magic Firewall (Read)', status: 'fail', detail: 'Network error' });
+    checks.push({ name: 'Magic Firewall', status: 'fail', detail: 'Network error' });
   }
 
   const allPassed = checks.every(function(ch) { return ch.status === 'pass'; });
@@ -341,6 +340,20 @@ app.delete('/api/schedules/:id', async (c) => {
   const id = parseInt(c.req.param('id'));
   await c.env.DB.prepare('DELETE FROM schedules WHERE id = ? AND user_email = ?').bind(id, email).run();
   return c.json({ ok: true });
+});
+
+app.put('/api/schedules/:id/toggle', async (c) => {
+  const email = c.get('userEmail');
+  const id = parseInt(c.req.param('id'));
+  const sched = await c.env.DB.prepare(
+    'SELECT enabled FROM schedules WHERE id = ? AND user_email = ?'
+  ).bind(id, email).first<{ enabled: string }>();
+  if (!sched) return c.json({ ok: false, error: 'Schedule not found' }, 404);
+  const newEnabled = sched.enabled === 'false' ? 'true' : 'false';
+  await c.env.DB.prepare(
+    `UPDATE schedules SET enabled = ?, updated_at = datetime('now') WHERE id = ? AND user_email = ?`
+  ).bind(newEnabled, id, email).run();
+  return c.json({ ok: true, enabled: newEnabled });
 });
 
 // ─── Status — shows all rules and their schedule associations ───

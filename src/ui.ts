@@ -637,6 +637,7 @@ export function renderDashboard(userEmail: string): string {
           enabledBadge +
         '</div>' +
         '<div class="flex gap-2">' +
+          '<button onclick="toggleScheduleEnabled(' + s.id + ')" class="text-[10px] ' + (s.enabled !== 'false' ? 'text-yellow-400 hover:text-yellow-300' : 'text-green-400 hover:text-green-300') + '">' + (s.enabled !== 'false' ? 'Pause' : 'Resume') + '</button>' +
           '<button onclick="editSchedule(' + s.id + ')" class="text-[10px] text-cf-gray hover:text-cf-orange">Edit</button>' +
           '<button onclick="deleteSchedule(' + s.id + ')" class="text-[10px] text-cf-gray hover:text-red-400">Delete</button>' +
         '</div>' +
@@ -672,6 +673,12 @@ export function renderDashboard(userEmail: string): string {
     var ruleIds = sched.rule_ids ? sched.rule_ids.split(',').filter(function(id) { return id.trim(); }).map(function(id) { return id.trim(); }) : [];
     populateRuleCheckboxes(ruleIds);
   }
+
+  async function toggleScheduleEnabled(id) {
+    await fetch('/api/schedules/' + id + '/toggle', { method: 'PUT' });
+    loadSchedules();
+  }
+  window.toggleScheduleEnabled = toggleScheduleEnabled;
 
   async function deleteSchedule(id) {
     if (!confirm('Remove this schedule?')) return;
@@ -834,12 +841,12 @@ export function renderDashboard(userEmail: string): string {
 
         html += '<div class="overflow-x-auto"><table class="w-full text-xs"><thead><tr class="border-b border-cf-border"><th class="text-left py-2 pr-4 text-cf-gray font-medium">Rule ID</th><th class="text-left py-2 pr-4 text-cf-gray font-medium">Description</th><th class="text-left py-2 pr-4 text-cf-gray font-medium">Action</th><th class="text-left py-2 pr-4 text-cf-gray font-medium">Status</th><th class="text-left py-2 text-cf-gray font-medium">Schedule</th></tr></thead><tbody>';
         data.rules.forEach(function(r) {
-          var badge = r.enabled ? '<span class="badge-enabled">ON</span>' : '<span class="badge-disabled">OFF</span>';
+          var badge = r.enabled ? '<span class="badge-enabled">Enabled</span>' : '<span class="badge-disabled">Disabled</span>';
           var schedInfo = ruleScheduleMap[r.id];
           var schedHtml = '';
           if (schedInfo) {
             schedHtml = schedInfo.map(function(si) {
-              var desired = si.enabled === 'false' ? 'paused' : (si.desiredState ? 'should be ON' : 'should be OFF');
+              var desired = si.enabled === 'false' ? 'paused' : (si.desiredState ? 'should be Enabled' : 'should be Disabled');
               return '<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:' + si.color + ';margin-right:3px;vertical-align:middle"></span><span class="text-[10px]">' + si.label + ' (' + desired + ')</span>';
             }).join(' ');
           } else {
