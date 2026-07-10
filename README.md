@@ -2,16 +2,21 @@
 
 A Cloudflare Worker that automates Magic Firewall rule scheduling. Configure multiple accounts, auto-discover rulesets, create schedules that enable/disable specific firewall rules on a time-based cadence, and visualize everything in a web dashboard.
 
+![Dashboard Screenshot](screenshot.png)
+
 ## Features
 
 - **Multi-account support** — manage multiple Cloudflare accounts from a single dashboard
 - **Auto-discovery** — automatically detects the Magic Firewall ruleset via the `magic_transit` phase entrypoint (no manual ruleset ID entry required)
 - **Rule enumeration** — fetches and displays all rules in the ruleset with a multi-select picker
 - **Multiple schedules** — create multiple schedules per account, each targeting different rules with independent enable/disable time windows
-- **Timeline visualization** — color-coded multi-schedule timeline showing active/inactive hours with current time marker
+- **Pause/resume schedules** — temporarily pause a schedule without deleting it; paused schedules are skipped by the cron handler
+- **Timeline visualization** — color-coded timeline showing enabled (green) and disabled (red) hours per schedule with a current time marker
 - **Manual override** — force enable/disable all scheduled rules with one click
-- **Activity log** — tracks all actions (schedule changes, manual toggles, etc.)
+- **Token permission checker** — built-in "Test Token" button verifies API token permissions against the Cloudflare API
+- **Activity log** — tracks all actions (schedule changes, manual toggles, cron runs)
 - **Cloudflare Access** — protected by Cloudflare Access for authentication
+- **Dark/light theme** — toggle between dark and light mode
 
 ## API Token Permissions
 
@@ -111,8 +116,10 @@ wrangler.toml — Worker configuration
 | `DELETE` | `/api/settings/:id` | Delete an account (cascades to schedules) |
 | `PUT` | `/api/settings/:id/default` | Set an account as default |
 | `POST` | `/api/rules` | Fetch rules from the account's Magic Firewall ruleset |
+| `POST` | `/api/test-token` | Verify API token permissions against the Cloudflare API |
 | `GET` | `/api/schedules` | List schedules (optional `?account_id` filter) |
 | `POST` | `/api/schedules` | Create or update a schedule |
+| `PUT` | `/api/schedules/:id/toggle` | Pause or resume a schedule |
 | `DELETE` | `/api/schedules/:id` | Delete a schedule |
 | `POST` | `/api/status` | Get rule status with schedule associations |
 | `POST` | `/api/toggle` | Force enable/disable rules |
