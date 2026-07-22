@@ -110,7 +110,12 @@ export function renderDashboard(userEmail: string): string {
     <!-- Settings Panel (collapsible) -->
     <div id="settings-panel" class="panel fade-in p-5 space-y-4 no-print hidden">
       <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold" style="color:var(--text-strong)">Accounts</h2>
+        <div class="flex items-center gap-2">
+          <button onclick="toggleSettings()" class="text-cf-gray hover:text-white" title="Close">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+          <h2 class="text-sm font-semibold" style="color:var(--text-strong)">Accounts</h2>
+        </div>
         <button onclick="showAddAccount()" class="px-3 py-1 text-xs font-semibold rounded-lg border border-cf-border text-cf-gray hover:border-cf-orange hover:text-cf-orange">+ Add Account</button>
       </div>
       <div id="accounts-list" class="space-y-2"></div>
