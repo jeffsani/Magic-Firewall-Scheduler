@@ -17,7 +17,7 @@ export async function accessAuthMiddleware(c: Context<AppEnv>, next: Next) {
   }
 
   if (c.env.ENVIRONMENT !== 'production') {
-    c.set('userEmail', 'dev@cloudflare.com');
+    c.set('userEmail', 'dev@localhost');
     return next();
   }
 
