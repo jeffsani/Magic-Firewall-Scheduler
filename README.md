@@ -1,15 +1,17 @@
-# Magic Firewall Rule Scheduler
+# Firewall Rule Scheduler
 
-A Cloudflare Worker that automates Magic Firewall rule scheduling. Configure multiple Cloudflare accounts, auto-discover rulesets, create time-based schedules that enable/disable specific firewall rules, and manage everything from a web dashboard.
+A Cloudflare Worker that automates firewall rule scheduling across L3/L4 and L7 rulesets. Configure multiple Cloudflare accounts, choose a ruleset — **Magic Firewall** (L3/L4), **WAF Custom Rules** (L7), or **Rate Limiting** (L7) — create time-based schedules that enable/disable specific rules, and manage everything from a web dashboard.
 
 ![Dashboard Screenshot](screenshot.png)
 
 ## Features
 
 - **Multi-account support** — manage multiple Cloudflare accounts from a single dashboard
-- **Auto-discovery** — automatically detects the Magic Firewall ruleset via the `magic_transit` phase entrypoint (no manual ruleset ID entry)
+- **Multi-ruleset support** — schedule rules across Magic Firewall (L3/L4), WAF Custom Rules (L7), and Rate Limiting (L7)
+- **Zone picker** — for L7 rulesets, select which zone's rules to schedule (zones are auto-discovered and cached)
+- **Auto-discovery** — automatically detects rulesets via phase entrypoints (no manual ruleset ID entry)
 - **Rule enumeration** — fetches and displays all rules with a multi-select picker
-- **Multiple schedules** — create independent schedules per account, each targeting different rules with their own enable/disable time windows (UTC)
+- **Multiple schedules** — create independent schedules per account/zone, each targeting different rules with their own enable/disable time windows (UTC)
 - **Pause/resume** — temporarily pause a schedule without deleting it; paused schedules are skipped by the cron handler
 - **Timeline visualization** — color-coded timeline showing enabled/disabled hours per schedule with a current-time marker
 - **Manual override** — force enable/disable all scheduled rules with one click
@@ -32,7 +34,7 @@ A Cloudflare Worker that automates Magic Firewall rule scheduling. Configure mul
 
 - **Node.js** 18+ and **npm**
 - **Wrangler CLI** — `npm install -g wrangler` ([docs](https://developers.cloudflare.com/workers/wrangler/install-and-update/))
-- A **Cloudflare account** with [Magic Transit](https://developers.cloudflare.com/magic-transit/) / [Magic Firewall](https://developers.cloudflare.com/magic-firewall/) enabled
+- A **Cloudflare account** with [Magic Transit](https://developers.cloudflare.com/magic-transit/) / [Magic Firewall](https://developers.cloudflare.com/magic-firewall/) and/or zones with [WAF](https://developers.cloudflare.com/waf/) enabled
 - (Optional) A **Cloudflare Access** application if you want to protect the dashboard in production
 
 ---
@@ -101,8 +103,10 @@ The worker authenticates to the Cloudflare API using a scoped **API Token**. Cre
 |---|---|---|
 | **Magic Firewall Packet Filter** | Edit | Discover the `magic_transit` phase entrypoint, enumerate rules, toggle rule enabled state |
 | **Account Rulesets** | Edit | List, view, and update rulesets at the account level |
+| **Zone > WAF** | Edit | Enumerate and toggle WAF Custom Rules and Rate Limiting rules |
+| **Zone > Zone** | Read | List zones under the account for the zone picker |
 
-> **Note:** "Edit" includes read — no separate read-only entry is needed.
+> **Note:** "Edit" includes read — no separate read-only entry is needed. You only need the Zone permissions if you plan to schedule L7 rules.
 
 #### Store the token as a secret
 
@@ -130,7 +134,7 @@ npx wrangler d1 execute mfw-automation-db --local --file=schema.sql
 npx wrangler deploy
 ```
 
-The worker will be available at `https://magic-firewall-rule-scheduler.<your-subdomain>.workers.dev`.
+The worker will be available at `https://firewall-rule-scheduler.<your-subdomain>.workers.dev`.
 
 ### 8. (Optional) Protect with Cloudflare Access
 
@@ -162,25 +166,38 @@ Open `http://localhost:8788` in your browser.
 ### Dashboard (UI)
 
 1. Click the **gear icon** → add an account (Account ID + API Token)
-2. The worker auto-discovers the Magic Firewall ruleset via the `magic_transit` phase entrypoint
-3. Create schedules: pick rules from the multi-select dropdown and set enable/disable hours (UTC)
-4. Use the timeline visualization to see when rules will be active
-5. Force enable/disable rules manually at any time
+2. Create a schedule: select a **Ruleset** (Magic Firewall L3/L4, WAF Custom Rules L7, or Rate Limiting L7)
+3. For L7 rulesets, select a **Zone** — zones are auto-discovered from the account
+4. The worker auto-discovers rules via the phase entrypoint; pick rules from the multi-select dropdown and set enable/disable hours (UTC)
+5. Use the timeline visualization to see when rules will be active
+6. Force enable/disable rules manually at any time
 
 ### Cron Handler
 
-The scheduled handler runs every 15 minutes (configurable in `wrangler.toml`) and:
+The scheduled handler runs every 15 minutes (configurable in `wrangler.toml`) and executes two phases:
 
+**Phase 1 — Legacy env-var handler** (backward compatible):
 1. Reads `ACCOUNT_ID`, `RULESET_ID`, `TARGET_RULE_IDS`, `ENABLE_HOUR_UTC`, and `DISABLE_HOUR_UTC` from environment variables
 2. Determines whether the current UTC hour falls within the enable window
 3. Fetches the ruleset from the Cloudflare API
 4. Updates any target rules whose state doesn't match the desired state
 
+**Phase 2 — D1-driven scheduler** (handles all rule types):
+1. Fetches all enabled schedules from D1 (all accounts, all rule types)
+2. Groups schedules by account + rule type + zone to minimize API calls
+3. For each group, fetches the current ruleset and computes the desired state per rule
+4. Updates rules that don't match their desired state
+
 ### API Flow
 
+**L3/L4 (Magic Firewall)** — account-scoped:
 1. **Ruleset discovery** — `GET /accounts/{account_id}/rulesets/phases/magic_transit/entrypoint`
-2. **Rule enumeration** — rules are returned in the entrypoint response, or fetched via `GET /accounts/{account_id}/rulesets/{ruleset_id}`
-3. **Rule toggling** — `PUT /accounts/{account_id}/rulesets/{ruleset_id}` with the full rule list (modified `enabled` flags)
+2. **Rule toggling** — `PUT /accounts/{account_id}/rulesets/{ruleset_id}`
+
+**L7 (WAF Custom Rules / Rate Limiting)** — zone-scoped:
+1. **Zone discovery** — `GET /zones?account.id={account_id}`
+2. **Ruleset discovery** — `GET /zones/{zone_id}/rulesets/phases/{phase}/entrypoint`
+3. **Rule toggling** — `PUT /zones/{zone_id}/rulesets/{ruleset_id}`
 
 All API calls use `Authorization: Bearer <token>`. No Global API Key or email is required.
 
@@ -192,9 +209,9 @@ All API calls use `Authorization: Bearer <token>`. No Global API Key or email is
 src/
   index.ts    — API routes (accounts, rules, schedules, status, toggle) + cron handler
   ui.ts       — Dashboard HTML/CSS/JS (single-file SPA)
-  types.ts    — TypeScript interfaces (Env, UserAccount, Schedule, RuleItem)
+  types.ts    — TypeScript interfaces (Env, UserAccount, Schedule, RuleItem, Zone, RuleType)
   auth.ts     — Cloudflare Access JWT validation middleware
-schema.sql          — D1 database schema (user_accounts, schedules, activity_log)
+schema.sql          — D1 database schema (user_accounts, schedules, zones, activity_log)
 wrangler.toml.example — Template config (copy to wrangler.toml and fill in your values)
 ```
 
@@ -207,14 +224,16 @@ wrangler.toml.example — Template config (copy to wrangler.toml and fill in you
 | `POST` | `/api/settings` | Create or update an account |
 | `DELETE` | `/api/settings/:id` | Delete an account (cascades to its schedules) |
 | `PUT` | `/api/settings/:id/default` | Set an account as default |
-| `POST` | `/api/rules` | Fetch rules from the account's Magic Firewall ruleset |
+| `POST` | `/api/rules` | Fetch rules from a ruleset (accepts `rule_type` + optional `zone_id`) |
+| `GET` | `/api/zones` | List cached zones for an account |
+| `POST` | `/api/zones` | Discover and cache zones from the Cloudflare API |
 | `POST` | `/api/test-token` | Verify API token permissions |
 | `GET` | `/api/schedules` | List schedules (optional `?account_id` filter) |
 | `POST` | `/api/schedules` | Create or update a schedule |
 | `PUT` | `/api/schedules/:id/toggle` | Pause or resume a schedule |
 | `DELETE` | `/api/schedules/:id` | Delete a schedule |
-| `POST` | `/api/status` | Get rule status with schedule associations |
-| `POST` | `/api/toggle` | Force enable/disable rules |
+| `POST` | `/api/status` | Get rule status with schedule associations (accepts `rule_type` + `zone_id`) |
+| `POST` | `/api/toggle` | Force enable/disable rules (accepts `rule_type` + `zone_id`) |
 | `GET` | `/api/activity` | Recent activity log |
 
 ---

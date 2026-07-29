@@ -2,17 +2,6 @@ export interface Env {
   // D1 database
   DB: D1Database;
 
-  // Authentication Secrets (for scheduled handler)
-  CLOUDFLARE_API_TOKEN: string;
-
-  // Variables from wrangler.toml (for scheduled handler)
-  ACCOUNT_ID: string;
-  RULESET_ID: string;
-  TARGET_RULE_IDS: string;
-  ENABLE_HOUR_UTC: number;
-  DISABLE_HOUR_UTC: number;
-  WORKER_ENABLED: string;
-
   // CF Access
   ENVIRONMENT: string;
   CF_ACCESS_TEAM_DOMAIN: string;
@@ -29,11 +18,24 @@ export interface UserAccount {
   updated_at: string;
 }
 
+export type RuleType = 'mfw' | 'waf_custom' | 'rate_limit';
+
+export interface Zone {
+  id: number;
+  user_email: string;
+  account_id: string;
+  zone_id: string;
+  zone_name: string;
+  updated_at: string;
+}
+
 export interface Schedule {
   id: number;
   user_email: string;
   account_id: string;
   label: string;
+  rule_type: RuleType;
+  zone_id: string;
   rule_ids: string;
   enable_hour_utc: number;
   disable_hour_utc: number;

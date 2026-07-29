@@ -1,22 +1,11 @@
-name = "magic-firewall-rule-scheduler"
+name = "firewall-rule-scheduler"
 main = "src/index.ts"
 compatibility_date = "2025-11-17"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-# Replace these placeholders with your actual values (see README for details)
-ACCOUNT_ID = "YOUR_CLOUDFLARE_ACCOUNT_ID"
-# Magic Firewall root ruleset ID (leave blank to auto-discover via the dashboard UI)
-RULESET_ID = ""
-# Comma-separated Magic Firewall rule IDs for the scheduled handler to manage
-TARGET_RULE_IDS = "RULE_ID_1,RULE_ID_2"
-# UTC hours defining the enable/disable window for the scheduled handler
-ENABLE_HOUR_UTC = 17
-DISABLE_HOUR_UTC = 1
-# Toggle to enable/disable the worker's scheduled logic ("true" or "false")
-WORKER_ENABLED = "true"
 # CF Access — set to your Access team name (e.g. "mycompany" for mycompany.cloudflareaccess.com)
-# Set to "development" to bypass auth during local dev
+# Set ENVIRONMENT to "development" to bypass auth during local dev
 ENVIRONMENT = "production"
 CF_ACCESS_TEAM_DOMAIN = "YOUR_ACCESS_TEAM_NAME"
 
